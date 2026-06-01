@@ -1,0 +1,4 @@
+interface:
+  display_name: "Origin PPT OLE Style Sync"
+  short_description: "Sync Origin OLE style and editable PPT overlays"
+  default_prompt: "Use $origin-ppt-ole-style-sync to make right-side Origin OLE charts match the left reference style with editable annotations."
