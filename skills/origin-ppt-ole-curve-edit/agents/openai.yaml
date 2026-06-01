@@ -1,0 +1,4 @@
+interface:
+  display_name: "Origin PPT OLE Curve Edit"
+  short_description: "Replace selected curves inside editable Origin OLE charts"
+  default_prompt: "Use $origin-ppt-ole-curve-edit to update selected curves inside an embedded Origin OLE chart while preserving editability and slide preview correctness."
