@@ -1,0 +1,7 @@
+interface:
+  display_name: "Origin PPT OLE 2026 Re-embed"
+  short_description: "Recover and validate Origin 2026 OLE charts"
+  default_prompt: "Use $origin-ppt-ole-2026-reembed to repair and verify Origin OLE charts in this PowerPoint deck."
+
+policy:
+  allow_implicit_invocation: true
