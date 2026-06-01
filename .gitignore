@@ -1,0 +1,33 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+
+# Local QA outputs and generated workflow evidence
+_*/
+*_preview/
+*_output/
+*_outputs/
+*.version_record.json
+*.tmp
+
+# Binary scientific and presentation artifacts
+*.ppt
+*.pptx
+*.pptm
+*.opj
+*.opju
+*.ole
+*.bin
+*.xlsx
+*.xls
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
