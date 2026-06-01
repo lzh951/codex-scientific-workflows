@@ -1,0 +1,4 @@
+interface:
+  display_name: "Origin Batch Plot"
+  short_description: "Automate Origin import, plot, and export with Python"
+  default_prompt: "Use $origin-batch-plot to create or update a Python-driven Origin workflow that imports data, plots selected columns, and exports figures."
