@@ -4,6 +4,13 @@ Reusable OriginLab, PowerPoint, and Codex workflow notes for scientific figure m
 
 This repository keeps the public, reusable part of a local research-figure workflow: controlling Origin from Python, validating editable Origin OLE objects inside PowerPoint, and preserving scientific figure editability without relying on static screenshot overlays.
 
+## Maintenance Snapshot
+
+- Scope: OriginLab, PowerPoint, editable OLE objects, and Codex-assisted scientific figure maintenance.
+- Public validation: GitHub Actions runs a Python syntax check for the public tools.
+- Public fixtures: `examples/` contains synthetic data only.
+- Contribution scope: see `CONTRIBUTING.md` before opening issues or pull requests.
+
 ## What Is Included
 
 The public scope is intentionally narrow:
@@ -53,6 +60,12 @@ python -m pip install -r requirements.txt
 
 ## Quick Examples
 
+Inspect the included synthetic fixture:
+
+```powershell
+Get-Content .\examples\origin_batch_plot_sample.csv
+```
+
 Create a non-overwriting PowerPoint copy and open it:
 
 ```powershell
@@ -77,9 +90,15 @@ python .\tools\origin_batch_plot.py --input "C:\path\to\data.csv" --x-col 0 --y-
 ## Repository Layout
 
 ```text
+.github/
+  workflows/
+    ci.yml
 docs/
   CODEX_FOR_OSS_APPLICATION_DRAFT.md
   MAINTENANCE.md
+examples/
+  README.md
+  origin_batch_plot_sample.csv
 skills/
   origin-batch-plot/
   origin-ppt-ole-2026-reembed/
@@ -88,6 +107,7 @@ skills/
 tools/
   origin_batch_plot.py
   prepare_ppt_version.py
+CONTRIBUTING.md
 ```
 
 ## License
