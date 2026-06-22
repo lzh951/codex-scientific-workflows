@@ -58,9 +58,16 @@ function Wait-AdbDevice([int]$Seconds) {
     return $false
 }
 
-function Start-PhoneService([string]$Action) {
+function Start-PhoneService([string]$Action, [string]$RelayBaseUrl = "", [string]$DeviceId = "") {
+    $serviceArgs = @("shell", "am", "start-foreground-service", "--user", "0", "-n", $ServiceComponent, "-a", $Action)
+    if ($RelayBaseUrl) {
+        $serviceArgs += @("--es", "relay_base_url", $RelayBaseUrl)
+    }
+    if ($DeviceId) {
+        $serviceArgs += @("--es", "relay_device_id", $DeviceId)
+    }
     for ($attempt = 1; $attempt -le 6; $attempt++) {
-        & $AdbPath shell am start-foreground-service --user 0 -n $ServiceComponent -a $Action
+        & $AdbPath @serviceArgs
         if ($LASTEXITCODE -eq 0) {
             return
         }
@@ -99,6 +106,14 @@ function Escape-Xml([string]$Value) {
     return [System.Security.SecurityElement]::Escape($Value)
 }
 
+function First-Match([string]$Text, [string]$Pattern) {
+    $match = [regex]::Match($Text, $Pattern)
+    if ($match.Success) {
+        return $match.Groups[1].Value
+    }
+    return $null
+}
+
 if (-not (Test-Path -LiteralPath $AdbPath)) {
     throw "adb not found: $AdbPath"
 }
@@ -114,7 +129,7 @@ if (-not $PSBoundParameters.ContainsKey("DeviceId") -and $config["DEVICE_ID"]) {
     $DeviceId = $config["DEVICE_ID"]
 }
 if (-not $RelayBaseUrl) {
-    $RelayBaseUrl = "https://example.trycloudflare.com"
+    throw "RelayBaseUrl is required unless $ConfigPath contains RELAY_BASE_URL. Use a fixed Worker/VPS relay URL for no-PC mode."
 }
 
 if (-not (Wait-AdbDevice $WaitForDeviceSeconds)) {
@@ -142,35 +157,20 @@ Open-PhoneApp
 Start-PhoneService "$PackageName.START"
 Start-Sleep -Seconds 3
 
-Write-Host "Reading owner token from app private preferences..."
+Write-Host "Reading current app preferences..."
 $prefs = & $AdbPath shell run-as $PackageName cat shared_prefs/devspace_android.xml 2>$null
-$ownerToken = $null
-$ownerTokenMatch = [regex]::Match(($prefs -join "`n"), '<string name="owner_token">([^<]+)</string>')
-if ($ownerTokenMatch.Success) {
-    $ownerToken = $ownerTokenMatch.Groups[1].Value
-}
-if (-not $ownerToken) {
-    throw "Could not read owner token from app preferences."
+$prefsText = $prefs -join "`n"
+$existingDeviceId = First-Match $prefsText '<string name="relay_device_id">([^<]+)</string>'
+if ($existingDeviceId -and -not $PSBoundParameters.ContainsKey("DeviceId")) {
+    $DeviceId = $existingDeviceId
 }
 
 Write-Host "Writing relay configuration: $RelayBaseUrl / $DeviceId"
-$xml = @"
-<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
-<map>
-    <string name="owner_token">$(Escape-Xml $ownerToken)</string>
-    <string name="relay_base_url">$(Escape-Xml $RelayBaseUrl)</string>
-    <string name="relay_device_id">$(Escape-Xml $DeviceId)</string>
-</map>
-"@
-$temp = Join-Path ([System.IO.Path]::GetTempPath()) "devspace-prefs.xml"
-[System.IO.File]::WriteAllText($temp, $xml, [System.Text.UTF8Encoding]::new($false))
-Invoke-Adb push $temp /data/local/tmp/devspace-prefs.xml
-Invoke-Adb shell "run-as $PackageName sh -c 'mkdir -p shared_prefs && cp /data/local/tmp/devspace-prefs.xml shared_prefs/devspace_android.xml && chmod 660 shared_prefs/devspace_android.xml'"
+Write-Host "Existing owner/access tokens will be preserved."
 
 Write-Host "Restarting phone-direct relay client..."
-Invoke-Adb shell am force-stop $PackageName
 Open-PhoneApp
-Start-PhoneService "$PackageName.START_RELAY"
+Start-PhoneService "$PackageName.START_RELAY" $RelayBaseUrl $DeviceId
 Start-Sleep -Seconds 8
 
 Write-Host "Forwarding local test port http://127.0.0.1:$HostPort"
@@ -192,4 +192,4 @@ Write-Host "Public phone-direct health: $publicHealthUrl"
 Invoke-HealthCheck $publicHealthUrl 30
 
 Write-Host "Public MCP URL: $publicMcpUrl"
-Write-Host "Owner token: $ownerToken"
+Write-Host "Owner token preserved in the app. Use the app's copy button only if a new authorization flow asks for it."

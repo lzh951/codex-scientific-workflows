@@ -9,7 +9,7 @@ public final class BootReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
         String relayBaseUrl = RelayConfig.getRelayBaseUrl(context);
-        if (relayBaseUrl == null || relayBaseUrl.isEmpty()) {
+        if (relayBaseUrl == null || relayBaseUrl.isEmpty() || !RelayConfig.isRelayEnabled(context)) {
             return;
         }
         Intent service = new Intent(context, PhoneMcpService.class).setAction(PhoneMcpService.ACTION_START_RELAY);

@@ -1,5 +1,5 @@
 ﻿param(
-    [string]$GradlePath = "D:\tools\gradle-8.10.2\bin\gradle.bat",
+    [string]$GradlePath = "",
     [string]$BuildRoot = "$env:LOCALAPPDATA\Temp\devspace-android-build",
     [string]$OutputApk = "$PSScriptRoot\..\app\build\outputs\apk\debug\app-debug-ascii.apk"
 )
@@ -7,8 +7,18 @@
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Resolve-Path "$PSScriptRoot\.."
 
-if (-not (Test-Path -LiteralPath $GradlePath)) {
-    throw "Gradle not found: $GradlePath"
+if (-not $GradlePath -or -not (Test-Path -LiteralPath $GradlePath)) {
+    $gradleCommand = Get-Command gradle.bat -ErrorAction SilentlyContinue
+    if (-not $gradleCommand) {
+        $gradleCommand = Get-Command gradle -ErrorAction SilentlyContinue
+    }
+    if ($gradleCommand) {
+        $GradlePath = $gradleCommand.Source
+    } elseif (Test-Path -LiteralPath "D:\tools\gradle-8.10.2\bin\gradle.bat") {
+        $GradlePath = "D:\tools\gradle-8.10.2\bin\gradle.bat"
+    } else {
+        throw "Gradle not found. Pass -GradlePath or add Gradle to PATH."
+    }
 }
 
 Write-Host "Preparing ASCII build directory: $BuildRoot"
@@ -34,8 +44,17 @@ if (-not (Test-Path -LiteralPath $BuiltApk)) {
     throw "Built APK not found: $BuiltApk"
 }
 
-$Zipalign = "D:\tools\android-sdk\build-tools\35.0.0\zipalign.exe"
-$ApkSigner = "D:\tools\android-sdk\build-tools\35.0.0\apksigner.bat"
+$sdkRoots = @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT, "D:\tools\android-sdk") | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+$buildToolsDir = $null
+foreach ($sdkRoot in $sdkRoots) {
+    $candidate = Get-ChildItem -LiteralPath (Join-Path $sdkRoot "build-tools") -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+    if ($candidate) {
+        $buildToolsDir = $candidate.FullName
+        break
+    }
+}
+$Zipalign = if ($buildToolsDir) { Join-Path $buildToolsDir "zipalign.exe" } else { "" }
+$ApkSigner = if ($buildToolsDir) { Join-Path $buildToolsDir "apksigner.bat" } else { "" }
 if (Test-Path -LiteralPath $Zipalign) {
     $zipalignOutput = & $Zipalign -c -p -v 4 $BuiltApk
     if ($LASTEXITCODE -ne 0) {

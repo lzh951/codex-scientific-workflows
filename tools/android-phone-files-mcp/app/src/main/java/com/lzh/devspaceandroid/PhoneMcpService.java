@@ -29,6 +29,7 @@ public final class PhoneMcpService extends Service {
     static final String ACTION_STOP_RELAY = "com.lzh.devspaceandroid.STOP_RELAY";
     static final String ACTION_RESTART_SERVER = "com.lzh.devspaceandroid.RESTART_SERVER";
     static final String EXTRA_RELAY_BASE_URL = "relay_base_url";
+    static final String EXTRA_RELAY_DEVICE_ID = "relay_device_id";
     static final String EXTRA_RESTART_REASON = "restart_reason";
     private static final String CHANNEL_ID = "devspace_android_server";
     private static final long WATCHDOG_FIRST_DELAY_MS = 20_000L;
@@ -116,6 +117,9 @@ public final class PhoneMcpService extends Service {
         String action = stickyRestart ? ACTION_START : intent.getAction();
         if (intent != null && intent.hasExtra(EXTRA_RELAY_BASE_URL)) {
             RelayConfig.setRelayBaseUrl(this, intent.getStringExtra(EXTRA_RELAY_BASE_URL));
+        }
+        if (intent != null && intent.hasExtra(EXTRA_RELAY_DEVICE_ID)) {
+            RelayConfig.setDeviceId(this, intent.getStringExtra(EXTRA_RELAY_DEVICE_ID));
         }
         if (ACTION_STOP.equals(action)) {
             relayRequested = false;

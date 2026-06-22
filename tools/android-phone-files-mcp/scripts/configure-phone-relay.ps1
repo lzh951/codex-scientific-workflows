@@ -20,9 +20,16 @@ function Invoke-Adb {
     }
 }
 
-function Start-PhoneService([string]$Action) {
+function Start-PhoneService([string]$Action, [string]$RelayBaseUrl = "", [string]$DeviceId = "") {
+    $serviceArgs = @("shell", "am", "start-foreground-service", "--user", "0", "-n", $ServiceComponent, "-a", $Action)
+    if ($RelayBaseUrl) {
+        $serviceArgs += @("--es", "relay_base_url", $RelayBaseUrl)
+    }
+    if ($DeviceId) {
+        $serviceArgs += @("--es", "relay_device_id", $DeviceId)
+    }
     for ($attempt = 1; $attempt -le 6; $attempt++) {
-        & $AdbPath shell am start-foreground-service --user 0 -n $ServiceComponent -a $Action
+        & $AdbPath @serviceArgs
         if ($LASTEXITCODE -eq 0) {
             return
         }
@@ -92,11 +99,7 @@ Start-Sleep -Seconds 2
 Write-Host "Reading current app preferences..."
 $prefs = & $AdbPath shell run-as $PackageName cat shared_prefs/devspace_android.xml 2>$null
 $prefsText = $prefs -join "`n"
-$ownerToken = First-Match $prefsText '<string name="owner_token">([^<]+)</string>'
 $existingDeviceId = First-Match $prefsText '<string name="relay_device_id">([^<]+)</string>'
-if (-not $ownerToken) {
-    throw "Could not read owner token from app preferences. Install the debug APK first, then open the app once."
-}
 if ($existingDeviceId -and -not $PSBoundParameters.ContainsKey("DeviceId")) {
     $DeviceId = $existingDeviceId
 }
@@ -104,25 +107,11 @@ if ($existingDeviceId -and -not $PSBoundParameters.ContainsKey("DeviceId")) {
 Write-Host "Writing phone-direct relay configuration..."
 Write-Host "Relay base URL: $RelayBaseUrl"
 Write-Host "Device ID: $DeviceId"
-
-$xml = @"
-<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
-<map>
-    <string name="owner_token">$(Escape-Xml $ownerToken)</string>
-    <string name="relay_base_url">$(Escape-Xml $RelayBaseUrl)</string>
-    <string name="relay_device_id">$(Escape-Xml $DeviceId)</string>
-</map>
-"@
-
-$temp = Join-Path ([System.IO.Path]::GetTempPath()) "devspace-prefs.xml"
-[System.IO.File]::WriteAllText($temp, $xml, [System.Text.UTF8Encoding]::new($false))
-Invoke-Adb push $temp /data/local/tmp/devspace-prefs.xml
-Invoke-Adb shell "run-as $PackageName sh -c 'mkdir -p shared_prefs && cp /data/local/tmp/devspace-prefs.xml shared_prefs/devspace_android.xml && chmod 660 shared_prefs/devspace_android.xml'"
+Write-Host "Existing owner/access tokens will be preserved."
 
 Write-Host "Restarting phone-direct relay client..."
-Invoke-Adb shell am force-stop $PackageName
 Open-PhoneApp
-Start-PhoneService "$PackageName.START_RELAY"
+Start-PhoneService "$PackageName.START_RELAY" $RelayBaseUrl $DeviceId
 Start-Sleep -Seconds 8
 
 $publicHealthUrl = "$RelayBaseUrl/d/$DeviceId/healthz"
@@ -144,4 +133,4 @@ if (-not $SkipVerify) {
 }
 
 Write-Host "Public MCP URL: $publicMcpUrl"
-Write-Host "Owner token: $ownerToken"
+Write-Host "Owner token preserved in the app. Use the app's copy button only if a new authorization flow asks for it."

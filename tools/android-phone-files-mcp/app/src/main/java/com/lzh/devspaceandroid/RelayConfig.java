@@ -34,6 +34,17 @@ final class RelayConfig {
         return deviceId;
     }
 
+    static void setDeviceId(Context context, String value) {
+        if (value == null) {
+            return;
+        }
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
+            return;
+        }
+        prefs(context).edit().putString(DEVICE_ID, trimmed).commit();
+    }
+
     static boolean isRelayEnabled(Context context) {
         return prefs(context).getBoolean(RELAY_ENABLED, false);
     }
