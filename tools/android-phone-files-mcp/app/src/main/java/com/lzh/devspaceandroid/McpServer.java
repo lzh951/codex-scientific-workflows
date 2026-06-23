@@ -722,6 +722,14 @@ final class McpServer extends NanoHTTPD {
         return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
     }
 
+    private String asciiFilename(String filename) {
+        if (filename == null || filename.isEmpty()) {
+            return "download";
+        }
+        String safe = filename.replace("\\", "_").replace("\"", "_").replaceAll("[^A-Za-z0-9._-]", "_");
+        return safe.isEmpty() ? "download" : safe;
+    }
+
     private String url(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }

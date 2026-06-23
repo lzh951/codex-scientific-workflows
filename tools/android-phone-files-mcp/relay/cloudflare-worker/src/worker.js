@@ -1,4 +1,4 @@
-﻿export class PhoneTunnel {
+export class PhoneTunnel {
   constructor(state, env) {
     this.state = state;
     this.env = env;
@@ -113,7 +113,7 @@
     const response = await responsePromise;
     return new Response(base64ToArrayBuffer(response.bodyBase64 || ""), {
       status: response.status || 502,
-      headers: response.headers || {},
+      headers: safeResponseHeaders(response.headers || {}),
     });
   }
 }
@@ -199,4 +199,30 @@ function base64ToArrayBuffer(base64) {
     bytes[index] = binary.charCodeAt(index);
   }
   return bytes;
+}
+
+function safeResponseHeaders(input) {
+  const headers = new Headers();
+  for (const [name, rawValue] of Object.entries(input || {})) {
+    const lower = String(name || "").toLowerCase();
+    if (!lower || lower === "content-length" || lower === "transfer-encoding" || lower === "connection") {
+      continue;
+    }
+    let value = String(rawValue == null ? "" : rawValue);
+    if (lower === "content-disposition") {
+      const encoded = value.match(/filename\*=UTF-8''[^;\s]+/i);
+      value = encoded
+        ? "attachment; filename=\"download\"; " + encoded[0]
+        : "attachment; filename=\"download\"";
+    } else {
+      value = value.replace(/[^\x09\x20-\x7e\x80-\xff]/g, "_");
+    }
+    try {
+      headers.set(name, value);
+    } catch (error) {
+      // Drop invalid upstream headers instead of turning a proxied file download
+      // into a Cloudflare Worker 1101 exception.
+    }
+  }
+  return headers;
 }
