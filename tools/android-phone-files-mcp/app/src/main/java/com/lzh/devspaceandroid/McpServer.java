@@ -497,11 +497,75 @@ final class McpServer extends NanoHTTPD {
             downloadLinks.remove(token);
             return text(Response.Status.NOT_FOUND, "File no longer exists.");
         }
-        Response response = newChunkedResponse(Response.Status.OK, contentType(file), new FileInputStream(file));
-        response.addHeader("Content-Length", String.valueOf(file.length()));
+        long fileLength = file.length();
+        String rangeHeader = session.getHeaders().get("range");
+        Response response;
+        if (rangeHeader != null && rangeHeader.toLowerCase(Locale.ROOT).startsWith("bytes=")) {
+            long[] range = parseRange(rangeHeader, fileLength);
+            if (range == null) {
+                response = newFixedLengthResponse(Response.Status.RANGE_NOT_SATISFIABLE, "text/plain; charset=utf-8", "Invalid range.");
+                response.addHeader("Content-Range", "bytes */" + fileLength);
+            } else {
+                long start = range[0];
+                long end = range[1];
+                long length = end - start + 1;
+                FileInputStream input = new FileInputStream(file);
+                long skipped = input.skip(start);
+                while (skipped < start) {
+                    long next = input.skip(start - skipped);
+                    if (next <= 0) {
+                        break;
+                    }
+                    skipped += next;
+                }
+                response = newFixedLengthResponse(Response.Status.PARTIAL_CONTENT, contentType(file), input, length);
+                response.addHeader("Content-Range", "bytes " + start + "-" + end + "/" + fileLength);
+                response.addHeader("Content-Length", String.valueOf(length));
+            }
+        } else {
+            response = newChunkedResponse(Response.Status.OK, contentType(file), new FileInputStream(file));
+            response.addHeader("Content-Length", String.valueOf(fileLength));
+        }
+        response.addHeader("Accept-Ranges", "bytes");
         response.addHeader("Content-Disposition", contentDisposition(file.getName()));
         response.addHeader("Cache-Control", "private, max-age=0, no-store");
         return withCors(response);
+    }
+
+    private long[] parseRange(String rangeHeader, long fileLength) {
+        try {
+            String spec = rangeHeader.substring("bytes=".length()).trim();
+            int comma = spec.indexOf(',');
+            if (comma >= 0) {
+                spec = spec.substring(0, comma).trim();
+            }
+            int dash = spec.indexOf('-');
+            if (dash < 0 || fileLength <= 0) {
+                return null;
+            }
+            String startText = spec.substring(0, dash).trim();
+            String endText = spec.substring(dash + 1).trim();
+            long start;
+            long end;
+            if (startText.isEmpty()) {
+                long suffix = Long.parseLong(endText);
+                if (suffix <= 0) {
+                    return null;
+                }
+                start = Math.max(0, fileLength - suffix);
+                end = fileLength - 1;
+            } else {
+                start = Long.parseLong(startText);
+                end = endText.isEmpty() ? fileLength - 1 : Long.parseLong(endText);
+            }
+            if (start < 0 || end < start || start >= fileLength) {
+                return null;
+            }
+            end = Math.min(end, fileLength - 1);
+            return new long[] { start, end };
+        } catch (Exception error) {
+            return null;
+        }
     }
 
     private void cleanupExpiredDownloadLinks() {

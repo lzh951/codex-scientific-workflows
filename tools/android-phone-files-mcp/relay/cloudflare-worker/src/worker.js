@@ -89,18 +89,91 @@ export class PhoneTunnel {
     if (!this.phone) {
       return new Response("Phone is not connected to this relay.", { status: 503 });
     }
+    if (request.method === "GET" && url.pathname.startsWith("/download/") && !request.headers.get("range")) {
+      return this.streamDownload(url, request);
+    }
     const body = await request.arrayBuffer();
-    const id = crypto.randomUUID();
-    const headers = {};
-    request.headers.forEach((value, key) => {
-      headers[key] = value;
-    });
-    const payload = {
-      id,
+    const response = await this.requestPhone({
       method: request.method,
       path: url.pathname + url.search,
-      headers,
+      headers: headersObject(request.headers),
       bodyBase64: arrayBufferToBase64(body),
+    });
+    return new Response(base64ToArrayBuffer(response.bodyBase64 || ""), {
+      status: response.status || 502,
+      headers: safeResponseHeaders(response.headers || {}),
+    });
+  }
+
+  async streamDownload(url, request) {
+    const chunkSize = 1024 * 1024;
+    let offset = 0;
+    let total = null;
+    let firstHeaders = null;
+    let firstChunk = null;
+
+    const fetchChunk = async (start, end) => {
+      const headers = headersObject(request.headers);
+      headers.range = `bytes=${start}-${end}`;
+      return this.requestPhone({
+        method: "GET",
+        path: url.pathname + url.search,
+        headers,
+        bodyBase64: "",
+      });
+    };
+
+    const first = await fetchChunk(0, chunkSize - 1);
+    if ((first.status || 502) >= 400) {
+      return new Response(base64ToArrayBuffer(first.bodyBase64 || ""), {
+        status: first.status || 502,
+        headers: safeResponseHeaders(first.headers || {}),
+      });
+    }
+    firstHeaders = safeResponseHeaders(first.headers || {});
+    const firstRange = firstHeaders.get("content-range") || "";
+    total = parseTotalFromContentRange(firstRange);
+    firstChunk = base64ToArrayBuffer(first.bodyBase64 || "");
+    if (total == null) {
+      total = firstChunk.byteLength;
+    }
+    offset = firstChunk.byteLength;
+
+    const stream = new ReadableStream({
+      async start(controller) {
+        if (firstChunk.byteLength > 0) {
+          controller.enqueue(new Uint8Array(firstChunk));
+        }
+        while (offset < total) {
+          const end = Math.min(offset + chunkSize - 1, total - 1);
+          const next = await fetchChunk(offset, end);
+          if ((next.status || 502) >= 400) {
+            throw new Error(`Phone download chunk failed with status ${next.status || 502}`);
+          }
+          const bytes = base64ToArrayBuffer(next.bodyBase64 || "");
+          if (!bytes.byteLength) {
+            break;
+          }
+          controller.enqueue(new Uint8Array(bytes));
+          offset += bytes.byteLength;
+        }
+        controller.close();
+      },
+    });
+
+    firstHeaders.set("content-length", String(total));
+    firstHeaders.delete("content-range");
+    return new Response(stream, {
+      status: 200,
+      headers: firstHeaders,
+    });
+  }
+
+  async requestPhone(payload) {
+    const id = crypto.randomUUID();
+    const message = {
+      id,
+      ...payload,
     };
     const responsePromise = new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -109,12 +182,8 @@ export class PhoneTunnel {
       }, 60000);
       this.pending.set(id, { resolve, reject, timer });
     });
-    this.phone.send(JSON.stringify(payload));
-    const response = await responsePromise;
-    return new Response(base64ToArrayBuffer(response.bodyBase64 || ""), {
-      status: response.status || 502,
-      headers: safeResponseHeaders(response.headers || {}),
-    });
+    this.phone.send(JSON.stringify(message));
+    return responsePromise;
   }
 }
 
@@ -190,6 +259,19 @@ function arrayBufferToBase64(buffer) {
     binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + chunkSize));
   }
   return btoa(binary);
+}
+
+function headersObject(headers) {
+  const output = {};
+  headers.forEach((value, key) => {
+    output[key] = value;
+  });
+  return output;
+}
+
+function parseTotalFromContentRange(value) {
+  const match = String(value || "").match(/\/(\d+)$/);
+  return match ? Number(match[1]) : null;
 }
 
 function base64ToArrayBuffer(base64) {
