@@ -1,0 +1,9 @@
+﻿services:
+  devspace-phone-relay:
+    build: .
+    container_name: devspace-phone-relay
+    restart: unless-stopped
+    env_file:
+      - ./relay.env
+    ports:
+      - "127.0.0.1:8788:8788"
