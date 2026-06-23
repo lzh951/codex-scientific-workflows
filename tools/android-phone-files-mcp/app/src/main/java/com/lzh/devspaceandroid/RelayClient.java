@@ -1,4 +1,4 @@
-﻿package com.lzh.devspaceandroid;
+package com.lzh.devspaceandroid;
 
 import android.content.Context;
 import android.os.Handler;
@@ -34,7 +34,7 @@ import okhttp3.WebSocket;
 import okhttp3.WebSocketListener;
 
 final class RelayClient {
-    private static final int MAX_BODY_BYTES = 10 * 1024 * 1024;
+    private static final int MAX_BODY_BYTES = 23 * 1024 * 1024;
     private static RelayClient instance;
 
     private final Context context;

@@ -264,7 +264,7 @@ final class McpServer extends NanoHTTPD {
             .put("required", new JSONArray(List.of("path")))
             .put("properties", new JSONObject()
                 .put("path", stringSchema("File path under the allowed Android root."))
-                .put("ttl_seconds", integerSchema("Link lifetime in seconds. Defaults to 600, maximum is 3600.")))));
+                .put("ttl_seconds", integerSchema("Link lifetime in seconds. Defaults to 3600, maximum is 3600.")))));
         tools.put(tool("revoke_download_link", "Revoke a download link created by create_download_link.", new JSONObject()
             .put("type", "object")
             .put("required", new JSONArray(List.of("token")))
@@ -404,7 +404,7 @@ final class McpServer extends NanoHTTPD {
                 case "file_preview":
                     return toolText(fileTools.filePreview(args.optString("path", ".")));
                 case "create_download_link":
-                    return createDownloadLink(args.optString("path"), args.optInt("ttl_seconds", 600), baseUrl(session));
+                    return createDownloadLink(args.optString("path"), args.optInt("ttl_seconds", 3600), baseUrl(session));
                 case "revoke_download_link":
                     return revokeDownloadLink(args.optString("token"));
                 case "write_file":
@@ -456,7 +456,7 @@ final class McpServer extends NanoHTTPD {
         if (!file.isFile()) {
             throw new IOException("Not a file: " + file.getAbsolutePath());
         }
-        int ttl = ttlSeconds <= 0 ? 600 : Math.min(ttlSeconds, 3600);
+        int ttl = ttlSeconds <= 0 ? 3600 : Math.min(ttlSeconds, 3600);
         cleanupExpiredDownloadLinks();
         String token = randomToken();
         long expiresAt = System.currentTimeMillis() + ttl * 1000L;

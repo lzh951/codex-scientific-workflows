@@ -84,7 +84,7 @@ The Android MCP server can create short-lived public download URLs for files ins
 https://<relay-host>/d/<device-id>/download/<download-token>
 ```
 
-The default lifetime is 10 minutes and the maximum lifetime is 1 hour. Links are bearer URLs: anyone with the URL can download that one file until the link expires or is revoked.
+The default lifetime is 1 hour and the maximum lifetime is 1 hour. Links are bearer URLs: anyone with the URL can download that one file until the link expires or is revoked. This relay path buffers one file response through the phone WebSocket relay; the default safe per-response cap is 23 MiB to stay below Cloudflare Durable Object WebSocket message limits after base64/JSON overhead.
 
 Use this for moving a selected phone file into a ChatGPT conversation or another trusted client. Do not publish generated download URLs in issues, logs, screenshots, examples, or documentation.
 
