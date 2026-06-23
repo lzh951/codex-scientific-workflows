@@ -9,6 +9,8 @@ It is meant for personal-device file workflows, not full phone control.
 - Android app with a phone-local MCP HTTP endpoint on port `7676`
 - Owner-token based authorization for MCP access
 - File tools for listing, reading, writing, hashing, searching, zipping, and chunked transfer
+- Text helpers for automatic charset detection, bounded line reads, previews, and literal edits with backups
+- Short-lived HTTPS download links for individual phone files through the configured relay
 - Optional outbound phone relay mode for public HTTPS access
 - Node.js relay for VPS or local temporary tunnel use
 - Cloudflare Worker relay option using Durable Objects
@@ -74,6 +76,18 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-local-temp-relay.ps1 -D
 
 Temporary `trycloudflare.com` URLs can change after restarts. For stable use, deploy the Node relay or Worker relay behind a fixed hostname.
 
+## Temporary Download Links
+
+The Android MCP server can create short-lived public download URLs for files inside the authorized storage root:
+
+```text
+https://<relay-host>/d/<device-id>/download/<download-token>
+```
+
+The default lifetime is 10 minutes and the maximum lifetime is 1 hour. Links are bearer URLs: anyone with the URL can download that one file until the link expires or is revoked.
+
+Use this for moving a selected phone file into a ChatGPT conversation or another trusted client. Do not publish generated download URLs in issues, logs, screenshots, examples, or documentation.
+
 ## Node Relay
 
 ```powershell
@@ -116,6 +130,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\mcp-smoke-test.ps1 -OwnerToke
 - `open_workspace`
 - `list_roots`
 - `read_file`
+- `read_file_auto`
+- `read_lines`
+- `file_preview`
+- `edit_file`
+- `create_download_link`
+- `revoke_download_link`
 - `write_file`
 - `read_file_base64`
 - `write_file_base64`
@@ -139,10 +159,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\mcp-smoke-test.ps1 -OwnerToke
 - Owner tokens
 - Real device IDs
 - Live relay URLs
+- Generated download URLs or download tokens
 - APK build outputs
 - screenshots containing tokens or URLs
 - logs
 - `node_modules`
 - `runtime`
 - `.env` files
-

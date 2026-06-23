@@ -1,4 +1,4 @@
-﻿package com.lzh.devspaceandroid;
+package com.lzh.devspaceandroid;
 
 import android.content.Context;
 
@@ -8,7 +8,11 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -20,10 +24,12 @@ import java.util.UUID;
 
 final class McpServer extends NanoHTTPD {
     static final int PORT = 7676;
+    private static final int MAX_REQUEST_BODY_BYTES = 20 * 1024 * 1024;
     private final Context context;
     private final TokenStore tokenStore;
     private final FileTools fileTools;
     private final Map<String, PendingCode> pendingCodes = new HashMap<>();
+    private final Map<String, DownloadLink> downloadLinks = new HashMap<>();
 
     McpServer(Context context) {
         super("0.0.0.0", PORT);
@@ -76,6 +82,9 @@ final class McpServer extends NanoHTTPD {
             }
             if ("/token".equals(uri)) {
                 return handleToken(session);
+            }
+            if (uri.startsWith("/download/")) {
+                return handleDownload(session, uri);
             }
             if ("/mcp".equals(uri)) {
                 return handleMcp(session);
@@ -133,19 +142,40 @@ final class McpServer extends NanoHTTPD {
     private Response handleToken(IHTTPSession session) throws IOException, ResponseException, JSONException {
         session.parseBody(new HashMap<>());
         Map<String, List<String>> params = session.getParameters();
+        String grantType = first(params, "grant_type");
+        if ("refresh_token".equals(grantType)) {
+            String refreshToken = first(params, "refresh_token");
+            if (!tokenStore.isRefreshToken(refreshToken)) {
+                return json(Response.Status.BAD_REQUEST, new JSONObject().put("error", "invalid_grant"));
+            }
+            return json(tokenResponse(refreshToken));
+        }
         String code = first(params, "code");
+        if (grantType != null && !grantType.isEmpty() && !"authorization_code".equals(grantType)) {
+            return json(Response.Status.BAD_REQUEST, new JSONObject().put("error", "unsupported_grant_type"));
+        }
+        if (code == null || code.isEmpty()) {
+            return json(Response.Status.BAD_REQUEST, new JSONObject().put("error", "invalid_request"));
+        }
         PendingCode pending = pendingCodes.remove(code);
         if (pending == null) {
             return json(Response.Status.BAD_REQUEST, new JSONObject().put("error", "invalid_grant"));
         }
+        String refreshToken = randomToken();
+        tokenStore.addRefreshToken(refreshToken);
+        return json(tokenResponse(refreshToken));
+    }
+
+    private JSONObject tokenResponse(String refreshToken) throws JSONException {
         String accessToken = randomToken();
         tokenStore.addAccessToken(accessToken);
         JSONObject response = new JSONObject();
         response.put("access_token", accessToken);
+        response.put("refresh_token", refreshToken);
         response.put("token_type", "Bearer");
         response.put("expires_in", 3600);
         response.put("scope", "phone.files");
-        return json(response);
+        return response;
     }
 
     private Response handleMcp(IHTTPSession session) throws IOException, ResponseException, JSONException {
@@ -173,7 +203,7 @@ final class McpServer extends NanoHTTPD {
                 result = new JSONObject().put("tools", tools());
                 break;
             case "tools/call":
-                result = callTool(request.optJSONObject("params"));
+                result = callTool(request.optJSONObject("params"), session);
                 break;
             case "ping":
                 result = new JSONObject();
@@ -206,6 +236,39 @@ final class McpServer extends NanoHTTPD {
             .put("type", "object")
             .put("required", new JSONArray(List.of("path")))
             .put("properties", new JSONObject().put("path", stringSchema("File path under the allowed Android root.")))));
+        tools.put(tool("read_file_auto", "Read a text file with automatic charset detection, including common Chinese encodings such as GB18030 and GBK.", new JSONObject()
+            .put("type", "object")
+            .put("required", new JSONArray(List.of("path")))
+            .put("properties", new JSONObject().put("path", stringSchema("File path under the allowed Android root.")))));
+        tools.put(tool("read_lines", "Read a bounded line range from a text file with automatic charset detection.", new JSONObject()
+            .put("type", "object")
+            .put("required", new JSONArray(List.of("path")))
+            .put("properties", new JSONObject()
+                .put("path", stringSchema("File path under the allowed Android root."))
+                .put("start_line", integerSchema("1-based first line to read. Defaults to 1."))
+                .put("line_count", integerSchema("Number of lines to read. Defaults to 200, maximum is 1000.")))));
+        tools.put(tool("edit_file", "Edit a text file by replacing literal search text. The original file is backed up by default.", new JSONObject()
+            .put("type", "object")
+            .put("required", new JSONArray(List.of("path", "search")))
+            .put("properties", new JSONObject()
+                .put("path", stringSchema("File path under the allowed Android root."))
+                .put("search", stringSchema("Literal text to replace."))
+                .put("replacement", stringSchema("Replacement text. Defaults to empty text."))
+                .put("replace_all", booleanSchema("Replace all occurrences. Defaults to false."))
+                .put("backup", booleanSchema("Create a timestamped backup before writing. Defaults to true.")))));
+        tools.put(tool("file_preview", "Preview file metadata and the first bytes of a text-like file with charset detection.", new JSONObject()
+            .put("type", "object")
+            .put("properties", new JSONObject().put("path", stringSchema("Path under the allowed Android root. Defaults to .")))));
+        tools.put(tool("create_download_link", "Create a short-lived public HTTPS download link for one phone file.", new JSONObject()
+            .put("type", "object")
+            .put("required", new JSONArray(List.of("path")))
+            .put("properties", new JSONObject()
+                .put("path", stringSchema("File path under the allowed Android root."))
+                .put("ttl_seconds", integerSchema("Link lifetime in seconds. Defaults to 600, maximum is 3600.")))));
+        tools.put(tool("revoke_download_link", "Revoke a download link created by create_download_link.", new JSONObject()
+            .put("type", "object")
+            .put("required", new JSONArray(List.of("token")))
+            .put("properties", new JSONObject().put("token", stringSchema("Download token returned by create_download_link.")))));
         tools.put(tool("write_file", "Write a UTF-8 text file on the phone.", new JSONObject()
             .put("type", "object")
             .put("required", new JSONArray(List.of("path", "content")))
@@ -314,7 +377,7 @@ final class McpServer extends NanoHTTPD {
         return tools;
     }
 
-    private JSONObject callTool(JSONObject params) throws JSONException {
+    private JSONObject callTool(JSONObject params, IHTTPSession session) throws JSONException {
         if (params == null) {
             return toolText("Missing params.");
         }
@@ -332,6 +395,18 @@ final class McpServer extends NanoHTTPD {
                     return toolText(fileTools.knownRoots());
                 case "read_file":
                     return toolText(fileTools.readFile(args.optString("path")));
+                case "read_file_auto":
+                    return toolText(fileTools.readFileAuto(args.optString("path")));
+                case "read_lines":
+                    return toolText(fileTools.readLines(args.optString("path"), args.optInt("start_line", 1), args.optInt("line_count", 200)));
+                case "edit_file":
+                    return toolText(fileTools.editFile(args.optString("path"), args.optString("search"), args.optString("replacement", ""), args.optBoolean("replace_all", false), args.optBoolean("backup", true)));
+                case "file_preview":
+                    return toolText(fileTools.filePreview(args.optString("path", ".")));
+                case "create_download_link":
+                    return createDownloadLink(args.optString("path"), args.optInt("ttl_seconds", 600), baseUrl(session));
+                case "revoke_download_link":
+                    return revokeDownloadLink(args.optString("token"));
                 case "write_file":
                     return toolText(fileTools.writeFile(args.optString("path"), args.optString("content", "")));
                 case "read_file_base64":
@@ -374,6 +449,64 @@ final class McpServer extends NanoHTTPD {
         } catch (Exception error) {
             return toolText("Error: " + (error.getMessage() == null ? error.toString() : error.getMessage())).put("isError", true);
         }
+    }
+
+    private JSONObject createDownloadLink(String path, int ttlSeconds, String baseUrl) throws IOException, JSONException {
+        File file = fileTools.resolvePath(path);
+        if (!file.isFile()) {
+            throw new IOException("Not a file: " + file.getAbsolutePath());
+        }
+        int ttl = ttlSeconds <= 0 ? 600 : Math.min(ttlSeconds, 3600);
+        cleanupExpiredDownloadLinks();
+        String token = randomToken();
+        long expiresAt = System.currentTimeMillis() + ttl * 1000L;
+        downloadLinks.put(token, new DownloadLink(file.getCanonicalFile(), expiresAt));
+        String url = baseUrl + "/download/" + url(token);
+        JSONObject output = new JSONObject()
+            .put("url", url)
+            .put("token", token)
+            .put("path", file.getAbsolutePath())
+            .put("bytes", file.length())
+            .put("expiresAt", expiresAt)
+            .put("ttlSeconds", ttl);
+        return toolText("Download link: " + url).put("structuredContent", output);
+    }
+
+    private JSONObject revokeDownloadLink(String token) throws JSONException {
+        boolean removed = false;
+        if (token != null && !token.isEmpty()) {
+            removed = downloadLinks.remove(token) != null;
+        }
+        JSONObject output = new JSONObject()
+            .put("revoked", removed);
+        return toolText(removed ? "Download link revoked." : "Download link was not found.").put("structuredContent", output);
+    }
+
+    private Response handleDownload(IHTTPSession session, String uri) throws IOException {
+        String token = uri.substring("/download/".length());
+        DownloadLink link = token == null || token.isEmpty() ? null : downloadLinks.get(token);
+        if (link == null) {
+            return text(Response.Status.NOT_FOUND, "Download link not found or expired.");
+        }
+        if (System.currentTimeMillis() > link.expiresAt) {
+            downloadLinks.remove(token);
+            return text(Response.Status.GONE, "Download link expired.");
+        }
+        File file = link.file;
+        if (!file.isFile()) {
+            downloadLinks.remove(token);
+            return text(Response.Status.NOT_FOUND, "File no longer exists.");
+        }
+        Response response = newChunkedResponse(Response.Status.OK, contentType(file), new FileInputStream(file));
+        response.addHeader("Content-Length", String.valueOf(file.length()));
+        response.addHeader("Content-Disposition", contentDisposition(file.getName()));
+        response.addHeader("Cache-Control", "private, max-age=0, no-store");
+        return withCors(response);
+    }
+
+    private void cleanupExpiredDownloadLinks() {
+        long now = System.currentTimeMillis();
+        downloadLinks.entrySet().removeIf(entry -> entry.getValue().expiresAt < now);
     }
 
     private boolean isAuthorized(IHTTPSession session) {
@@ -478,10 +611,38 @@ final class McpServer extends NanoHTTPD {
     }
 
     private String body(IHTTPSession session) throws IOException, ResponseException {
-        Map<String, String> files = new HashMap<>();
-        session.parseBody(files);
-        String body = files.get("postData");
-        return body == null ? "" : body;
+        String contentLengthHeader = session.getHeaders().get("content-length");
+        if (contentLengthHeader == null || contentLengthHeader.isEmpty()) {
+            Map<String, String> files = new HashMap<>();
+            session.parseBody(files);
+            String parsedBody = files.get("postData");
+            return parsedBody == null ? "" : parsedBody;
+        }
+        int contentLength;
+        try {
+            contentLength = Integer.parseInt(contentLengthHeader.trim());
+        } catch (NumberFormatException error) {
+            throw new IOException("Invalid content-length: " + contentLengthHeader, error);
+        }
+        if (contentLength < 0) {
+            throw new IOException("Invalid negative content-length: " + contentLength);
+        }
+        if (contentLength > MAX_REQUEST_BODY_BYTES) {
+            throw new IOException("Request body is too large: " + contentLength + " bytes.");
+        }
+        InputStream input = session.getInputStream();
+        ByteArrayOutputStream output = new ByteArrayOutputStream(contentLength);
+        byte[] buffer = new byte[8192];
+        int remaining = contentLength;
+        while (remaining > 0) {
+            int read = input.read(buffer, 0, Math.min(buffer.length, remaining));
+            if (read == -1) {
+                break;
+            }
+            output.write(buffer, 0, read);
+            remaining -= read;
+        }
+        return new String(output.toByteArray(), StandardCharsets.UTF_8);
     }
 
     private String approvalPage(IHTTPSession session, Map<String, List<String>> params, String error) {
@@ -565,6 +726,35 @@ final class McpServer extends NanoHTTPD {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
+    private String contentDisposition(String filename) {
+        String safe = filename == null || filename.isEmpty() ? "download" : filename.replace("\\", "_").replace("\"", "'");
+        String encoded = URLEncoder.encode(safe, StandardCharsets.UTF_8).replace("+", "%20");
+        return "attachment; filename=\"" + escape(safe) + "\"; filename*=UTF-8''" + encoded;
+    }
+
+    private String contentType(File file) {
+        String name = file.getName().toLowerCase(Locale.ROOT);
+        if (name.endsWith(".txt") || name.endsWith(".log") || name.endsWith(".md") || name.endsWith(".csv")) {
+            return "text/plain; charset=utf-8";
+        }
+        if (name.endsWith(".json")) {
+            return "application/json; charset=utf-8";
+        }
+        if (name.endsWith(".pdf")) {
+            return "application/pdf";
+        }
+        if (name.endsWith(".zip")) {
+            return "application/zip";
+        }
+        if (name.endsWith(".png")) {
+            return "image/png";
+        }
+        if (name.endsWith(".jpg") || name.endsWith(".jpeg")) {
+            return "image/jpeg";
+        }
+        return "application/octet-stream";
+    }
+
     private static final class PendingCode {
         final String clientId;
         final String redirectUri;
@@ -572,6 +762,16 @@ final class McpServer extends NanoHTTPD {
         PendingCode(String clientId, String redirectUri) {
             this.clientId = clientId;
             this.redirectUri = redirectUri;
+        }
+    }
+
+    private static final class DownloadLink {
+        final File file;
+        final long expiresAt;
+
+        DownloadLink(File file, long expiresAt) {
+            this.file = file;
+            this.expiresAt = expiresAt;
         }
     }
 }

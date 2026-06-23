@@ -7,6 +7,7 @@ This project exposes phone files through MCP. Treat it as a privileged local-dev
 - Android owner token
 - Live public relay URL
 - Real device ID
+- Generated download URL or download token
 - Phone screenshots containing tokens, URLs, or file names
 - ADB logs containing private file paths
 - `.env` files
@@ -42,6 +43,8 @@ The project is not designed to expose:
 
 A public relay URL plus a valid owner token can grant file access to the authorized storage root. Rotate the token and remove the relay if a URL or token is exposed.
 
+Temporary download links are also bearer credentials. They should be short-lived, scoped to one file, and revoked when they are no longer needed. Never paste a live download URL into public GitHub issues, examples, logs, screenshots, or documentation.
+
 ## Reporting
 
 Open an issue without secrets. Replace real values with placeholders such as:
@@ -50,4 +53,3 @@ Open an issue without secrets. Replace real values with placeholders such as:
 https://relay.example.com/d/phone-example/mcp
 <owner-token>
 ```
-

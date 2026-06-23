@@ -1,4 +1,4 @@
-﻿package com.lzh.devspaceandroid;
+package com.lzh.devspaceandroid;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -12,6 +12,7 @@ final class TokenStore {
     private static final String PREFS = "devspace_android";
     private static final String OWNER_TOKEN = "owner_token";
     private static final String ACCESS_TOKENS = "access_tokens";
+    private static final String REFRESH_TOKENS = "refresh_tokens";
     private final SharedPreferences preferences;
 
     TokenStore(Context context) {
@@ -43,10 +44,26 @@ final class TokenStore {
         preferences.edit().putStringSet(ACCESS_TOKENS, tokens).apply();
     }
 
+    void addRefreshToken(String token) {
+        if (token == null || token.isEmpty()) {
+            return;
+        }
+        Set<String> tokens = new HashSet<>(preferences.getStringSet(REFRESH_TOKENS, new HashSet<>()));
+        tokens.add(token);
+        preferences.edit().putStringSet(REFRESH_TOKENS, tokens).apply();
+    }
+
     boolean isAccessToken(String token) {
         if (token == null || token.isEmpty()) {
             return false;
         }
         return preferences.getStringSet(ACCESS_TOKENS, new HashSet<>()).contains(token);
+    }
+
+    boolean isRefreshToken(String token) {
+        if (token == null || token.isEmpty()) {
+            return false;
+        }
+        return preferences.getStringSet(REFRESH_TOKENS, new HashSet<>()).contains(token);
     }
 }

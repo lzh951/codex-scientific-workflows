@@ -1,4 +1,4 @@
-﻿package com.lzh.devspaceandroid;
+package com.lzh.devspaceandroid;
 
 import android.content.Context;
 import android.media.MediaScannerConnection;
@@ -15,6 +15,12 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.Charset;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
@@ -37,6 +43,9 @@ final class FileTools {
     private static final int MAX_MEDIA_SCAN_FILES = 1000;
     private static final int MAX_ZIP_ENTRIES = 2000;
     private static final long MAX_ZIP_BYTES = 512L * 1024L * 1024L;
+    private static final int MAX_LINE_COUNT = 1000;
+    private static final int PREVIEW_BYTES = 8192;
+    private static final int PREVIEW_CHARS = 2000;
     private final Context context;
 
     FileTools(Context context) {
@@ -101,6 +110,122 @@ final class FileTools {
             throw new IOException("File is too large for one read: " + length + " bytes. Limit is " + MAX_READ_BYTES + " bytes.");
         }
         return new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
+    }
+
+    String readFileAuto(String path) throws IOException, JSONException {
+        File file = resolvePath(path);
+        if (!file.isFile()) {
+            throw new IOException("Not a file: " + pathForUser(file));
+        }
+        long length = file.length();
+        if (length > MAX_READ_BYTES) {
+            throw new IOException("File is too large for one auto text read: " + length + " bytes. Limit is " + MAX_READ_BYTES + " bytes. Use read_lines or read_file_chunk_base64.");
+        }
+        DecodeResult decoded = decodeText(Files.readAllBytes(file.toPath()));
+        return new JSONObject()
+            .put("path", pathForUser(file))
+            .put("bytes", length)
+            .put("charset", decoded.charset)
+            .put("text", decoded.text)
+            .toString();
+    }
+
+    String readLines(String path, int startLine, int lineCount) throws IOException, JSONException {
+        File file = resolvePath(path);
+        if (!file.isFile()) {
+            throw new IOException("Not a file: " + pathForUser(file));
+        }
+        long length = file.length();
+        if (length > MAX_READ_BYTES) {
+            throw new IOException("File is too large for line reading in this build: " + length + " bytes. Limit is " + MAX_READ_BYTES + " bytes.");
+        }
+        int start = Math.max(1, startLine);
+        int count = lineCount <= 0 ? 200 : Math.min(lineCount, MAX_LINE_COUNT);
+        DecodeResult decoded = decodeText(Files.readAllBytes(file.toPath()));
+        String[] lines = decoded.text.split("\\R", -1);
+        int from = Math.min(lines.length, start - 1);
+        int to = Math.min(lines.length, from + count);
+        StringBuilder text = new StringBuilder();
+        for (int i = from; i < to; i++) {
+            text.append(lines[i]);
+            if (i + 1 < to) {
+                text.append('\n');
+            }
+        }
+        return new JSONObject()
+            .put("path", pathForUser(file))
+            .put("bytes", length)
+            .put("charset", decoded.charset)
+            .put("startLine", start)
+            .put("lineCount", to - from)
+            .put("totalLines", lines.length)
+            .put("nextLine", to >= lines.length ? JSONObject.NULL : to + 1)
+            .put("eof", to >= lines.length)
+            .put("text", text.toString())
+            .toString();
+    }
+
+    String editFile(String path, String search, String replacement, boolean replaceAll, boolean backup) throws IOException, JSONException {
+        if (search == null || search.isEmpty()) {
+            throw new IOException("search is required");
+        }
+        File file = resolvePath(path);
+        if (!file.isFile()) {
+            throw new IOException("Not a file: " + pathForUser(file));
+        }
+        long length = file.length();
+        if (length > MAX_READ_BYTES) {
+            throw new IOException("File is too large for edit_file: " + length + " bytes. Limit is " + MAX_READ_BYTES + " bytes.");
+        }
+        byte[] bytes = Files.readAllBytes(file.toPath());
+        DecodeResult decoded = decodeText(bytes);
+        String source = decoded.text;
+        String repl = replacement == null ? "" : replacement;
+        int replacements = countOccurrences(source, search, replaceAll);
+        if (replacements == 0) {
+            throw new IOException("Search text was not found.");
+        }
+        String edited = replaceAll ? source.replace(search, repl) : source.replaceFirst(java.util.regex.Pattern.quote(search), java.util.regex.Matcher.quoteReplacement(repl));
+        File backupFile = null;
+        if (backup) {
+            backupFile = new File(file.getParentFile(), file.getName() + ".bak-" + System.currentTimeMillis());
+            Files.copy(file.toPath(), backupFile.toPath());
+        }
+        Files.write(file.toPath(), encodeText(edited, decoded.charset));
+        JSONObject output = new JSONObject()
+            .put("path", pathForUser(file))
+            .put("charset", decoded.charset)
+            .put("replacements", replacements)
+            .put("bytesBefore", length)
+            .put("bytesAfter", file.length());
+        if (backupFile != null) {
+            output.put("backupPath", pathForUser(backupFile));
+        }
+        return output.toString();
+    }
+
+    String filePreview(String path) throws IOException, JSONException {
+        File file = resolvePath(path == null || path.isEmpty() ? "." : path);
+        JSONObject output = new JSONObject()
+            .put("path", pathForUser(file))
+            .put("relative", file.exists() ? relativePath(file) : JSONObject.NULL)
+            .put("exists", file.exists());
+        if (!file.exists()) {
+            return output.toString();
+        }
+        output.put("type", file.isDirectory() ? "directory" : file.isFile() ? "file" : "other")
+            .put("bytes", file.isDirectory() ? 0 : file.length())
+            .put("lastModified", file.lastModified())
+            .put("readable", file.canRead())
+            .put("writable", file.canWrite());
+        if (file.isFile()) {
+            byte[] previewBytes = readPrefix(file, PREVIEW_BYTES);
+            DecodeResult decoded = decodeText(previewBytes);
+            output.put("charsetGuess", decoded.charset)
+                .put("previewBytes", previewBytes.length)
+                .put("previewText", truncate(decoded.text, PREVIEW_CHARS));
+        }
+        return output.toString();
     }
 
     String writeFile(String path, String content) throws IOException {
@@ -794,6 +919,118 @@ final class FileTools {
             out.append(String.format(Locale.US, "%02x", value & 0xff));
         }
         return out.toString();
+    }
+
+    private DecodeResult decodeText(byte[] bytes) throws IOException {
+        if (startsWith(bytes, 0xff, 0xfe)) {
+            return new DecodeResult("UTF-16LE", stripBom(new String(bytes, Charset.forName("UTF-16LE"))));
+        }
+        if (startsWith(bytes, 0xfe, 0xff)) {
+            return new DecodeResult("UTF-16BE", stripBom(new String(bytes, Charset.forName("UTF-16BE"))));
+        }
+        if (startsWith(bytes, 0xef, 0xbb, 0xbf)) {
+            return new DecodeResult("UTF-8", stripBom(new String(bytes, StandardCharsets.UTF_8)));
+        }
+        String utf8 = tryDecode(bytes, StandardCharsets.UTF_8);
+        if (utf8 != null) {
+            return new DecodeResult("UTF-8", stripBom(utf8));
+        }
+        for (String name : new String[] {"GB18030", "GBK", "UTF-16LE", "UTF-16BE"}) {
+            try {
+                Charset charset = Charset.forName(name);
+                String text = tryDecode(bytes, charset);
+                if (text != null) {
+                    return new DecodeResult(name, stripBom(text));
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return new DecodeResult("ISO-8859-1", new String(bytes, Charset.forName("ISO-8859-1")));
+    }
+
+    private String tryDecode(byte[] bytes, Charset charset) {
+        CharsetDecoder decoder = charset.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT);
+        try {
+            CharBuffer chars = decoder.decode(ByteBuffer.wrap(bytes));
+            return chars.toString();
+        } catch (CharacterCodingException error) {
+            return null;
+        }
+    }
+
+    private byte[] encodeText(String text, String charsetName) {
+        try {
+            return text.getBytes(Charset.forName(charsetName));
+        } catch (Exception ignored) {
+            return text.getBytes(StandardCharsets.UTF_8);
+        }
+    }
+
+    private boolean startsWith(byte[] bytes, int... prefix) {
+        if (bytes.length < prefix.length) {
+            return false;
+        }
+        for (int i = 0; i < prefix.length; i++) {
+            if ((bytes[i] & 0xff) != prefix[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private String stripBom(String text) {
+        if (text != null && !text.isEmpty() && text.charAt(0) == '\ufeff') {
+            return text.substring(1);
+        }
+        return text;
+    }
+
+    private int countOccurrences(String source, String search, boolean replaceAll) {
+        int count = 0;
+        int index = 0;
+        while ((index = source.indexOf(search, index)) != -1) {
+            count++;
+            if (!replaceAll) {
+                return count;
+            }
+            index += search.length();
+        }
+        return count;
+    }
+
+    private byte[] readPrefix(File file, int maxBytes) throws IOException {
+        int size = (int) Math.min(file.length(), (long) maxBytes);
+        byte[] bytes = new byte[size];
+        try (FileInputStream input = new FileInputStream(file)) {
+            int offset = 0;
+            while (offset < size) {
+                int read = input.read(bytes, offset, size - offset);
+                if (read == -1) {
+                    break;
+                }
+                offset += read;
+            }
+        }
+        return bytes;
+    }
+
+    private String truncate(String text, int maxChars) {
+        if (text == null || text.length() <= maxChars) {
+            return text;
+        }
+        return text.substring(0, maxChars);
+    }
+
+    private static final class DecodeResult {
+        final String charset;
+        final String text;
+
+        DecodeResult(String charset, String text) {
+            this.charset = charset;
+            this.text = text;
+        }
     }
 
     private void addKnownRoot(StringBuilder out, String label, File file) {
