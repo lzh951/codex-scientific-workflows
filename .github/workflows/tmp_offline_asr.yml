@@ -12,55 +12,24 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  model:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Build whisper.cpp CPU CLI
+      - name: Download compact multilingual model
         shell: bash
         run: |
           set -euxo pipefail
-          git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git
-          SOURCE_DATE_EPOCH=1 cmake -S whisper.cpp -B whisper.cpp/build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=ON \
-            -DGGML_NATIVE=OFF \
-            -DGGML_AVX=ON \
-            -DGGML_AVX2=ON \
-            -DGGML_FMA=ON \
-            -DGGML_F16C=ON \
-            -DGGML_BMI2=OFF \
-            -DGGML_AVX512=OFF \
-            -DGGML_AVX512_VBMI=OFF \
-            -DGGML_AVX512_VNNI=OFF \
-            -DGGML_AVX512_BF16=OFF \
-            -DGGML_AMX_TILE=OFF \
-            -DGGML_AMX_INT8=OFF \
-            -DGGML_AMX_BF16=OFF \
-            -DWHISPER_BUILD_TESTS=OFF \
-            -DWHISPER_BUILD_SERVER=OFF
-          cmake --build whisper.cpp/build --config Release -j 2
-
-      - name: Download multilingual Chinese-capable model
-        shell: bash
-        run: |
-          set -euxo pipefail
-          mkdir -p bundle/lib
-          cp whisper.cpp/build/bin/whisper-cli bundle/
-          find whisper.cpp/build -type f \( -name 'libwhisper.so*' -o -name 'libggml*.so*' \) -exec cp -L '{}' bundle/lib/ \;
+          mkdir -p model
           curl -fL --retry 5 --retry-delay 2 \
-            -o bundle/ggml-base-q5_1.bin \
-            https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin
-          LD_LIBRARY_PATH="$PWD/bundle/lib" ldd bundle/whisper-cli || true
-          sha256sum bundle/whisper-cli bundle/ggml-base-q5_1.bin bundle/lib/* > bundle/SHA256SUMS.txt
+            -o model/ggml-tiny-q5_1.bin \
+            https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin
+          sha256sum model/* > model/SHA256SUMS.txt
 
-      - name: Upload bundle
+      - name: Upload model
         uses: actions/upload-artifact@v4
         with:
-          name: offline-asr-linux-x64-generic
-          path: bundle
+          name: offline-asr-tiny-model
+          path: model
           retention-days: 1
           compression-level: 0
