@@ -26,6 +26,7 @@ jobs:
           git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git
           cmake -S whisper.cpp -B whisper.cpp/build \
             -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
             -DWHISPER_BUILD_TESTS=OFF \
             -DWHISPER_BUILD_SERVER=OFF
           cmake --build whisper.cpp/build --config Release -j 2
@@ -34,18 +35,19 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          mkdir -p bundle
+          mkdir -p bundle/lib
           cp whisper.cpp/build/bin/whisper-cli bundle/
+          find whisper.cpp/build -type f \( -name 'libwhisper.so*' -o -name 'libggml*.so*' \) -exec cp -L '{}' bundle/lib/ \;
           curl -fL --retry 5 --retry-delay 2 \
             -o bundle/ggml-base-q5_1.bin \
             https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin
-          ldd bundle/whisper-cli || true
-          sha256sum bundle/* > bundle/SHA256SUMS.txt
+          LD_LIBRARY_PATH="$PWD/bundle/lib" ldd bundle/whisper-cli || true
+          sha256sum bundle/whisper-cli bundle/ggml-base-q5_1.bin bundle/lib/* > bundle/SHA256SUMS.txt
 
       - name: Upload bundle
         uses: actions/upload-artifact@v4
         with:
-          name: offline-asr-linux-x64
+          name: offline-asr-linux-x64-complete
           path: bundle
           retention-days: 1
           compression-level: 0
