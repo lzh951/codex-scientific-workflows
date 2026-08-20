@@ -1,0 +1,48 @@
+name: Temporary Offline ASR Bundle
+
+on:
+  push:
+    branches:
+      - tmp-offline-asr-20260820
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build whisper.cpp CPU CLI
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git
+          cmake -S whisper.cpp -B whisper.cpp/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DWHISPER_BUILD_TESTS=OFF \
+            -DWHISPER_BUILD_SERVER=OFF
+          cmake --build whisper.cpp/build --config Release -j 2
+
+      - name: Download multilingual Chinese-capable model
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p bundle
+          cp whisper.cpp/build/bin/whisper-cli bundle/
+          curl -fL --retry 5 --retry-delay 2 \
+            -o bundle/ggml-base-q5_1.bin \
+            https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin
+          ldd bundle/whisper-cli || true
+          sha256sum bundle/* > bundle/SHA256SUMS.txt
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: offline-asr-linux-x64
+          path: bundle
+          retention-days: 1
+          compression-level: 0
