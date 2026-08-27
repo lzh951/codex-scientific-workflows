@@ -1,0 +1,4 @@
+interface:
+  display_name: "Minimal PPT / Slope Style"
+  short_description: "Minimal, content-first PowerPoint slides"
+  default_prompt: "Use $minimal-ppt-slope-style for a PPT with only key figures and key wording, minimal decoration, no redundant subheadings, and concise natural text."
