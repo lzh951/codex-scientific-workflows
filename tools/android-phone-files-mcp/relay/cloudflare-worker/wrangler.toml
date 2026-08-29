@@ -1,0 +1,11 @@
+﻿name = "devspace-phone-relay"
+main = "src/worker.js"
+compatibility_date = "2026-06-19"
+
+[[durable_objects.bindings]]
+name = "PHONE_TUNNEL"
+class_name = "PhoneTunnel"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PhoneTunnel"]
