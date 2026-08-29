@@ -1,0 +1,18 @@
+{
+  "name": "origin-computer-use",
+  "version": "0.1.0",
+  "description": "Computer Use workflow for controlling and visually verifying OriginLab Origin on Windows.",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Origin Computer Use",
+    "shortDescription": "Control OriginLab Origin through Codex Computer Use with screenshot verification.",
+    "longDescription": "A local workflow plugin for OriginLab Origin desktop automation. It complements originpro and PowerPoint OLE workflows by handling UI-level inspection, window selection, and screenshot-based verification through Codex Computer Use.",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Use Origin Computer Use to inspect Origin readiness and control Origin only after the Computer Use preflight passes."
+  }
+}

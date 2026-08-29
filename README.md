@@ -38,6 +38,11 @@ The public scope is intentionally narrow:
 5. **Selected curve replacement inside OLE**
    - Replace selected curve data inside an embedded Origin OLE object without converting it to a picture.
 
+6. **Experimental Codex plugin packaging**
+   - Package reusable local workflows as Codex plugins.
+   - Include an `origin-computer-use` preflight workflow for OriginLab Origin desktop control through Codex Computer Use.
+   - Require screenshot-based verification before claiming a desktop-control workflow has run through.
+
 ## What Is Not Included
 
 Private research datasets, project-specific analysis pipelines, manuscript-specific figures, and domain-specific calculations are deliberately excluded. The goal is to share the reusable workflow boundary around Origin, PowerPoint, OLE editability, and scientific figure quality control.
@@ -104,6 +109,8 @@ skills/
   origin-ppt-ole-2026-reembed/
   origin-ppt-ole-curve-edit/
   origin-ppt-ole-style-sync/
+plugins/
+  origin-computer-use/
 tools/
   origin_batch_plot.py
   prepare_ppt_version.py
